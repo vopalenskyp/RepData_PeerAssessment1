@@ -1,5 +1,6 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: Pavel Vopalensky (based on template by Roger D Peng)
 output: 
   html_document:
     keep_md: true
@@ -7,19 +8,139 @@ output:
 
 
 ## Loading and preprocessing the data
+```{R}
+#setwd("C:/Pavel/DataScience/Reproducible_research/W2_assignment/RepData_PeerAssesment1")
 
+#download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip", destfile = "repdata%2Fdata%2Factivity.zip")
+
+rawdata <- read.csv(unzip("repdata%2Fdata%2Factivity.zip"))
+rawdata$date <- as.Date(rawdata$date)
+
+#Also, let's load the packages we are using later.
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+
+```
 
 
 ## What is mean total number of steps taken per day?
+We will first add the day as a new column and then group and summarize the data by the new column "day". 
 
+```{R}
+steps_per_day <- rawdata %>% mutate(day = day(date)) %>% group_by(day) %>% summarize(totalsteps = sum(steps, na.rm = TRUE))
+```
+
+Now we have the data ready to be plotted
+
+```{R}
+hist(steps_per_day$totalsteps, xlab = "Steps per day", main = "Histogram of total steps per day")
+```
+
+And the median and mean are simply called by the native functions:
+
+```{R}
+median(steps_per_day$totalsteps)
+mean(steps_per_day$totalsteps)
+
+```
 
 
 ## What is the average daily activity pattern?
 
+First, we make a new dataframe where we group the data by interval and make an average value.
 
+```{R}
+
+steps_in_interval <- rawdata %>% group_by(interval) %>% summarize(meansteps = mean(steps, na.rm = TRUE))
+```
+
+Now we just plot the mean number of steps in each interval.
+```{R}
+plot (steps_in_interval$interval, steps_in_interval$meansteps, type = "l", xlab = "Time [HHMM]", ylab = "Average steps", main = "Average steps over the day")
+```
+
+To look at the interval, in which the maximum number of steps is done, let's check the max meanstep value and call the corresponding interval from column 1.
+```{R}
+steps_in_interval[steps_in_interval$meansteps == max(steps_in_interval$meansteps),1]
+
+```
+
+The maximum steps are obviously done in the interval between 8:35-8:40AM.
 
 ## Imputing missing values
+First, we calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NA:
 
+```{R}
+#Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NA
 
+sum(is.na(rawdata$steps))
+```
+
+So, there are 2304 missing values.
+
+To input the missing values, we will use the average steps the given (missing) interval from the monthly average.
+First, we will merge the original data with the mean step value generated previously and stored in steps_in_interval dataframe.
+
+```{R}
+#Merging the data with average steps in given interval
+data_filled <- merge(rawdata,steps_in_interval,by = "interval")
+
+```
+
+Now, we substitute the NA by the mean interval value:
+
+```{R}
+data_filled$steps[is.na(data_filled$steps)] <- 
+    data_filled$meansteps[is.na(data_filled$steps)]
+```
+
+To make the new data look exactly the same as the original, we must sort by date and intervalal order, remove the filler column (meansteps) and reorder the columns to be the same as in original dataset:
+```{R}
+data_filled <- data_filled[order(data_filled$date, data_filled$interval),]
+data_filled <- data_filled[,!names(data_filled) == "meansteps"]
+data_filled <- data_filled[,c(2,3,1)]
+head(data_filled)
+```
+
+Now, we just generating the new dataframes with the filled-in data and make the same plots, mean and median as in the previous task.
+```{R}
+steps_per_day_f <- data_filled %>% mutate(day = day(date)) %>% group_by(day) %>% summarize(totalsteps = sum(steps, na.rm = TRUE))
+
+#Getting plot and statistics output
+hist(steps_per_day_f$totalsteps, xlab = "Steps per day", main = "Histogram of total steps per day (NA substituted by interval mean)")
+median(steps_per_day_f$totalsteps)
+mean(steps_per_day_f$totalsteps)
+
+```
+The median is 21641 and the mean 21185.08. 
+
+So to summarize the observations, filling in the NA values by the mean for the given interval generally increases the average steps in the previously missing intervals. Also, it mildly increases the mean and median number of steps per month. I think it is not a good idea to substitute the missing values.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+First, we generate a new datacolumn with the day name and then another column with the factor Week or Weekend.
+```{R}
+
+fill_categh <- data_filled %>% mutate(weekday = weekdays(date))
+fill_categh$WE[fill_categh$weekday %in% c("Saturday","Sunday")] <-  "Weekend"
+fill_categh$WE[fill_categh$weekday %in% 
+                   c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")] <-  "Week"
+```
+
+Now, we can just group and summarize the data.
+```{R}
+steps_int_fill <- fill_categh %>% group_by(interval,WE) %>% summarize(meansteps = mean(steps, na.rm = TRUE))
+```
+
+In the last task, we just plot the grouped data separated by Week or Weekend value.
+```{R}
+
+qplot(interval, meansteps, data = steps_int_fill, na.rm = TRUE,
+      facets = as.factor(WE) ~ ., geom = ("line"),
+      xlab = "Interval", ylab = "Steps", 
+      main = "Average steps over the day")
+
+```
+
+So there are some differences, e.g people generally starting to wal earlier during the Week, or having more spread pattern during the Weekend. But actually, I expected a bigger difference between the Week and the Weekend.
+
